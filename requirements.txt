@@ -1,0 +1,15 @@
+dash
+pandas
+dash_auth
+dash
+dash_bootstrap_components
+dash_core_components
+dash_html_components
+dash.dependencies
+dash.exceptions
+dash_table
+json
+plotly
+sqlite3
+datatable
+dash_bio
