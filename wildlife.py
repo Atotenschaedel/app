@@ -51,6 +51,8 @@ app = dash.Dash(	suppress_callback_exceptions = True,
 	# app,
 	# VALID_USERNAME_PASSWORD_PAIRS
 # )
+# for render
+server = app.server
 app.title="Wildlife"
 
 navbar = dbc.NavbarSimple(
