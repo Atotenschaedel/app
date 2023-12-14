@@ -1,44 +1,45 @@
 #!/usr/bin/env python# 
 #-*- coding: utf-8 -*
 import sys
-import dash_auth
+#import dash_auth
 import dash
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State, MATCH
-from dash.exceptions import PreventUpdate
-import dash_table
-import json
+#from dash.exceptions import PreventUpdate
+#import dash_table
+#import json
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import dash_trich_components as dtc
-import sqlite3
+#import plotly.graph_objects as go
+#import dash_trich_components as dtc
+#import sqlite3
 from datetime import datetime as dt
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta
-import dash_more_components as dmc
+#import dash_more_components as dmc
 
 import time
-import datatable
-import dash_bio as dashbio
+#import datatable
+#import dash_bio as dashbio
 
 import os.path
 from os import path
 
 import calendar
-from lollipop import get_lollipop
-
+#from lollipop import get_lollipop
+#import pillow
 import io
-from base64 import decodestring
+from base64 import decodebytes
 
-import get_image_meta
+#import get_image_meta
+from PIL import Image, ExifTags
 from datetime import date
 from datetime import datetime
 
 f = open("pwd.txt").read().splitlines()
-VALID_USERNAME_PASSWORD_PAIRS = {f[0]:f[1]}
+VALID_USERNAME_PASSWORD_PAIRS = { x[0]: x[1] for x in map(lambda i: i.split(), f) if len(x) == 2}
 
 app = dash.Dash(	suppress_callback_exceptions = True, 
 					external_stylesheets=[dbc.themes.YETI, 'https://use.fontawesome.com/releases/v5.8.1/css/all.css'],
@@ -52,7 +53,7 @@ app = dash.Dash(	suppress_callback_exceptions = True,
 	# VALID_USERNAME_PASSWORD_PAIRS
 # )
 # for render
-server = app.server
+#server = app.server
 app.title="Wildlife"
 
 navbar = dbc.NavbarSimple(
@@ -80,7 +81,7 @@ navbar = dbc.NavbarSimple(
 body = 	dbc.Row([
 			dbc.Col(
 					children = [
-								dmc.Geolocation(id="geolocation"),
+								dcc.Geolocation(id="geolocation"),
 								html.Label("Sample ID"),
 								dbc.Input(placeholder="Sample ID", 
 									type="text", 
@@ -272,14 +273,14 @@ def update_output(images):
 		image_filenames.append("/home/ptriska/Desktop/wildlife/images/image_"+str(i)+".jpg")
 		
 		image = image_str.split(',')[1]
-		data = decodestring(image.encode('ascii'))
+		data = decodebytes(image.encode('ascii'))
 		with open("/home/ptriska/Desktop/wildlife/images/image_"+str(i)+".jpg", "wb") as f:
 			f.write(data)
 	items = []
 	children = []
 	coords = []
 	for i, fname in zip(images, image_filenames):
-		coords.append(get_image_meta.image_coord(fname))
+		coords.append(get_gps_coords(fname))
 		children.append(dbc.Card([ dbc.CardBody([
 													html.H5(get_image_meta.image_metadata(fname), className="card-title"),
 													html.Img(src = i)
@@ -334,6 +335,35 @@ def save(n, sample_id, date, time, species, sample_live, sample_type, symptoms, 
 		return dbc.Alert("Sample "+sample_ID+" has been submitted.", color="success")
 	else:
 		return dbc.Alert("Warning: following fields were empty: "+",".join(missing), color="warning")
+
+
+def get_gps_coords(img):
+    """gets GPS longitude and latitude from image exif data using pillow >= 10.0.0"""
+    img = Image.open(img)
+    exif_d = None
+    try:
+        exif_d = img.getexif()
+        if ExifTags.IFD.GPSInfo in exif_d:
+            gps_d = exif_d.get_ifd(ExifTags.IFD.GPSInfo)
+    except:
+        return None
+    tags = ["GPSLatitude", "GPSLatitudeRef", "GPSLongitude", "GPSLongitudeRef"]
+    tags = {x: int(ExifTags.GPS[x]) for x in tags}
+    gps_d = {x: gps_d[tags[x]] for x in tags if tags[x] in gps_d}
+    if not ("GPSLatitude" in gps_d and "GPSLongitude" in gps_d):
+        return None
+    gps_coords = [0, 0]
+    if len(gps_d["GPSLatitude"]) == 3:
+        gps_coords[0] = gps_d["GPSLatitude"][0] + gps_d["GPSLatitude"][1] / 60.0 + gps_d["GPSLatitude"][2] / 3600
+        gps_coords[1] = gps_d["GPSLongitude"][0] + gps_d["GPSLongitude"][1] / 60.0 + gps_d["GPSLongitude"][2] / 3600
+    if "GPSLatitudeRef" in gps_d:
+        if gps_d["GPSLatitudeRef"] == "S":
+            gps_coords[0] *= -1
+        if gps_d["GPSLongitudeRef"] == "W":
+            gps_coords[1] *= -1
+    return gps_coords
+
+
 #height=800, width = 800,
 if __name__ == "__main__":
-	app.run_server(debug=True,dev_tools_ui=True, dev_tools_props_check=True,host='0.0.0.0')
+    app.run_server(debug=True, dev_tools_ui=True, dev_tools_props_check=True, host='0.0.0.0')
