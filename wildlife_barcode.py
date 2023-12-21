@@ -1,14 +1,21 @@
 #!/usr/bin/env python#
 #-*- coding: utf-8 -*
-import sys
+# import sys
+import re
+import os.path
+from base64 import b64encode, b64decode  # , decodebytes
+from io import BytesIO
+#import time
+
 #import dash_auth
 import dash
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from dash import dcc
 #import dash_core_components as dcc
 #import dash_html_components as html
 from dash import html
-from dash.dependencies import Input, Output, State, MATCH
+from dash.dependencies import Input, Output, State  # , MATCH
 #from dash.exceptions import PreventUpdate
 #import dash_table
 #import json
@@ -17,26 +24,15 @@ import plotly.express as px
 #import plotly.graph_objects as go
 #import dash_trich_components as dtc
 #import sqlite3
-from datetime import datetime as dt
-from dateutil.relativedelta import relativedelta
-from datetime import timedelta
+#from datetime import datetime as dt
+#from dateutil.relativedelta import relativedelta
+#from datetime import timedelta
 #import dash_more_components as dmc
 
-import time
-#import datatable
-#import dash_bio as dashbio
-
-import os.path
-from os import path
-
-import calendar
-#from lollipop import get_lollipop
-#import pillow
-import io
-from base64 import decodebytes
+import pyzbar.pyzbar
 
 #import get_image_meta
-from PIL import Image, ExifTags
+from PIL import Image, ExifTags, ImageDraw
 from datetime import date
 from datetime import datetime
 
@@ -140,7 +136,7 @@ body = dbc.Row([
                 id="symptoms"
             ),
             dcc.Upload(id="upload_component",
-                       multiple=True,
+                       multiple=False,
                        children=[
                            dbc.Button(
                                "Upload photos",
@@ -169,8 +165,8 @@ body = dbc.Row([
 app.layout = html.Div(
     [
         dcc.Location(id="url"),
-        dcc.Store(id="coords"),
-        dcc.Store(id="image_filenames"),
+        dcc.Store(id="barcode"),
+        dcc.Store(id="image_filename"),
         dcc.Store(id="dummy"),
         navbar,
         dbc.Container(
@@ -195,15 +191,15 @@ def get_date(btn):
     return d1, t1
 
 
-@app.callback(
-    Output("sample_id", "value"),
-    Input("url", "search")
-)
-def get_url(sample_id):
-    # remove '?' if a start of URL
-    if sample_id.index("?") == 0:
-        sample_id = sample_id.replace("?", "", count="1")
-    return sample_id
+# @app.callback(
+#     Output("sample_id", "value"),
+#     Input("url", "search")
+# )
+# def get_url(sample_id):
+#     # remove '?' if a start of URL
+#     if sample_id.index("?") == 0:
+#         sample_id = sample_id.replace("?", "", count="1")
+#     return sample_id
 
 
 @app.callback(
@@ -236,36 +232,6 @@ def map(coords):
     fig.update_layout(height=250, width=250, margin={"l": 0, "r": 0, "b": 5, "t": 25})
     fig_map = dcc.Graph(figure=fig)
     return fig_map
-    # fig_map = dcc.Graph(figure = fig)
-
-# @app.callback(
-    # Output("date_picker", "date"),
-    # Output("time", "value"),
-    # Output("map_div","children"),
-    # Output("geo_input","value"),
-    # Input("geolocation", "local_date"),
-    # Input("geolocation", "position"),
-# )
-# def display_output(date, pos):
-    # print(date, pos)
-    # date_f= date.split(",")[0]
-    # time = date.split(",")[1]
-
-    # df = pd.DataFrame.from_dict({"lat":[pos['lat']],"lon":[pos['lon']]})
-
-    # fig = fig=px.scatter_mapbox(df,
-    # mapbox_style = "carto-positron",
-    # lat = "lat",
-    # lon = "lon",
-    # center={"lat":pos['lat'], "lon": pos['lon']},
-    # zoom = 12,
-    # #autosize=True
-    # #height=400,
-    # )
-    # fig.update_layout(height=250,margin = {"l":0, "r":0, "b":5, "t":25})
-    # fig_map = dcc.Graph(figure = fig)
-    # fig_map = None
-    # return date_f, time, fig_map, "lat: "+str(pos["lat"])+" lon: "+str(pos["lon"])
 
 
 def parse_contents(contents, fname):
@@ -278,61 +244,53 @@ def parse_contents(contents, fname):
 
 
 @app.callback(
-    Output("image_div", 'children'),
-    Output("coords", 'data'),
-    Output("image_filenames", 'data'),
-    [Input("upload_component", 'contents')],
-    State("sample_id", "value")
+    Output("sample_id", 'value'),
+    Input("barcode", 'data'),
+    #State("sample_id", "value")
 )
-def update_output(images, sample_id):
-    if not images:
-        return None, None, None
-    #HOME = os.path.expanduser('~')
+def sample_id_from_barcode(barcode):
+    if not barcode:
+        raise PreventUpdate
+    return barcode
+
+
+@app.callback(
+    Output("image_div", 'children'),
+    Output("barcode", 'data'),
+    Output("image_filename", 'data'),
+    Input("upload_component", 'contents'),
+    State("sample_id", "value"),
+)
+def update_output(img_u, sample_id):
+    if not img_u:
+        raise PreventUpdate
+    elif not re.match('data:image/.+;base64', img_u):
+        return dbc.Alert("not recognized as an image, try a jpeg", color="warning"), sample_id, None
     CURDIR = os.path.abspath(os.path.curdir)
     if not os.path.exists(CURDIR + "/wildlifedata") or not os.path.exists(CURDIR + "/wildlifedata/images"):
         os.mkdir(CURDIR + "/wildlifedata")
         os.mkdir(CURDIR + "/wildlifedata/images")
     elif not os.path.isdir(CURDIR + "/wildlifedata/images"):
-        return None, None, None
-    image_filenames = []
-    for i, image_str in enumerate(images):
-        fn = CURDIR + "/wildlifedata/images/image_" + sample_id + "_" + str(i) + ".jpg"
-        image_filenames.append(fn)
-        image = image_str.split(',')[1]
-        data = decodebytes(image.encode('ascii'))
-        with open(fn, "wb") as f:
-            f.write(data)
-    items = []
-    children = []
-    coords = []
-    for i, fname in zip(images, image_filenames):
-        img = Image.open(fname)
-        coords.append(get_gps_coords(img))
-        children.append(
-            dbc.Card([
-                dbc.CardBody([
-                    html.H5(os.path.basename(fname), className="card-title"),
-                    html.Img(src=i, width="25%")
-                ])
-            ])
-        )
-        #items.append({"alt":"no image", "key":fname, "src":fname, "caption": get_image_meta.image_coordinates(fname)})
-        items.append({"src": fname})
-        cards = dbc.Row([dbc.Col(x) for x in children])
-        #children.append(parse_contents(i, fname))
-    #return dbc.CardColumns(children), coords, image_filenames
-    return cards, coords, image_filenames
-    #return coords, image_filenames
-    #print("Chlen!!! ", len(children))
-    #return dbc.Carousel(items = items)
-    # return dtc.Carousel(children = children,
-    # slides_to_scroll=1,
-    # swipe_to_slide=True,
-    # autoplay=False,
-    # speed=1000,
-    # #    variable_width=True,
-    # center_mode=True
-    # )
+        raise PreventUpdate
+    img = re.sub('^data:image/.+;base64,', '', img_u)
+    img = Image.open(BytesIO(b64decode(img)))
+    bcode, img_a = read_barcode(img.copy())
+    if isinstance(bcode, dbc.Alert):
+        return bcode, sample_id, None
+    img_b = BytesIO()
+    img_a.save(img_b, format="JPEG")
+    img_b = b64encode(img_b.getvalue()).decode("utf-8")
+    bcode = bcode.decode('utf-8')
+    himg = html.Img(src="data:image/jpg;base64," + img_b, width="25%")
+    image_filename = CURDIR + "/wildlifedata/images/image_" + bcode + ".jpg"
+    img.save(image_filename, format="JPEG")
+    child = dbc.Card([
+        dbc.CardBody([
+            html.H5(os.path.basename(image_filename), className="card-title"),
+            himg
+        ])
+    ])
+    return dbc.Row([dbc.Col(child)]), bcode, image_filename
 
 
 @app.callback(
@@ -345,11 +303,18 @@ def update_output(images, sample_id):
     State("sample_live", "value"),
     State("sample_type", "value"),
     State("symptoms", "value"),
-    State("coords", "data"),
-    State("image_filenames", "data"),
+    State("image_filename", "data"),
 )
-def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms, coords, image_filenames):
+def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms, image_filename):
     #json_string = {"sample_id":sample_id, "date":date, "time":time, "species":species, "sample_live":sample_live, "symptoms":symptoms, "coords":", ".join(coords), "image_filenames":", ".join(image_filenames)}
+    if n == 0 or not sample_id:
+        raise PreventUpdate
+    CURDIR = os.path.abspath(os.path.curdir)
+    if not os.path.exists(CURDIR + "/wildlifedata") or not os.path.exists(CURDIR + "/wildlifedata/images"):
+        os.mkdir(CURDIR + "/wildlifedata")
+        os.mkdir(CURDIR + "/wildlifedata/images")
+    elif not os.path.isdir(CURDIR + "/wildlifedata"):
+        raise PreventUpdate
     bigdict = {
         "sample_id": sample_id,
         "date": date,
@@ -357,13 +322,13 @@ def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms,
         "species": species,
         "sample_live": sample_live,
         "symptoms": symptoms,
-        "coords": coords,
-        "image_filenames": image_filenames
+        #"coords": coords,
+        "image_filename": image_filename
     }
     json_string = str(bigdict)
     if sample_id is None or len(sample_id) == 0:
         return dbc.Alert("Sample ID " + str(sample_id) + " is empty", color="warning")
-    f = open(sample_id + ".json", "w")
+    f = open(CURDIR + "/wildlifedata/" + sample_id + ".json", "w")
     f.write(json_string)
     f.close()
     missing = []
@@ -374,6 +339,23 @@ def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms,
         return dbc.Alert("Sample " + sample_id + " has been submitted.", color="success")
     else:
         return dbc.Alert("Warning: following fields were empty: " + ",".join(missing), color="warning")
+
+
+def read_barcode(img, code=[pyzbar.pyzbar.ZBarSymbol.CODE128]):
+    # for testing
+    # img_mb = Image.open("test_barcode_multi.jpg")
+    # img_cb = Image.open('test_barcode_cartridge.jpg')
+    bcodes = pyzbar.pyzbar.decode(img, code)
+    if len(bcodes) == 0:
+        return dbc.Alert("Warning: No barcodes identified!"), img
+    elif len(bcodes) > 1:
+        return dbc.Alert("Warning: Multiple barcodes identified!"), img
+    bcoords = [bcodes[0].rect.left, bcodes[0].rect.top,
+               bcodes[0].rect.left + bcodes[0].rect.width,
+               bcodes[0].rect.top + bcodes[0].rect.height]
+    img_draw = ImageDraw.Draw(img)
+    img_draw.rectangle(bcoords, outline="red", width=5)
+    return bcodes[0].data, img
 
 
 def get_image_metadata(img):

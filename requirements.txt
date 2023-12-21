@@ -5,5 +5,5 @@ watchdog>=2.3
 dash-bootstrap-components
 dash-table
 pillow>=10.0.0
-json
 plotly
+pyzbar
