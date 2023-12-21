@@ -23,7 +23,8 @@ import pandas as pd
 import plotly.express as px
 #import plotly.graph_objects as go
 #import dash_trich_components as dtc
-#import sqlite3
+import sqlite3
+from sqlite3 import Error
 #from datetime import datetime as dt
 #from dateutil.relativedelta import relativedelta
 #from datetime import timedelta
@@ -331,6 +332,28 @@ def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms,
     f = open(CURDIR + "/wildlifedata/" + sample_id + ".json", "w")
     f.write(json_string)
     f.close()
+    #DB update
+    dbname = CURDIR + "/wildlifedata/wd_sqlite.db"
+    tab_name = "wildlife_data"
+    con = get_db_connection(dbname, tab_name=tab_name)
+    if not isinstance(con, sqlite3.Connection):
+        return dbc.Alert("DB problem" + con, color="error")
+    tab_cols = con.execute(f"PRAGMA table_info('{tab_name}')").fetchall()
+    tab_cols = [x[1] for x in tab_cols]
+    # check database table to see whether columns and big dict are similar
+    if not all([x in bigdict.keys() for x in tab_cols]):
+        return dbc.Alert("Some database columns missing in bigdict!", color="error")
+    elif not all([x in tab_cols for x in bigdict.keys()]):
+        return dbc.Alert("Some bigdict fields missing in database table!", color="error")
+    #vals = [tab_name]
+    #vals.extend([bigdict[x] for x in tab_cols])
+    try:
+        con.execute(f"INSERT INTO {tab_name} VALUES ( ?" + ", ?" * (len(tab_cols) - 1) + " )",
+                    [bigdict[x] for x in tab_cols])
+        con.commit()
+    except Error as e:
+        return dbc.Alert("DB submission problem:" + e, color="error")
+    con.close()
     missing = []
     for key, val in bigdict.items():
         if val is None:
@@ -339,6 +362,23 @@ def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms,
         return dbc.Alert("Sample " + sample_id + " has been submitted.", color="success")
     else:
         return dbc.Alert("Warning: following fields were empty: " + ",".join(missing), color="warning")
+
+
+def get_db_connection(dbname,
+                      tab_name="wildlife_data",
+                      col_names=["sample_id", "date", "time", "species", "sample_live", "symptoms", "image_filename"]):
+    con = None
+    try:
+        con = sqlite3.connect(dbname)
+    except Error as e:
+        return "DB connection error" + e
+    cur = con.cursor()
+    tables = cur.execute("SELECT name FROM sqlite_master WHERE TYPE = 'table'").fetchall()
+    if len(tables) == 0 or not(tab_name in [x[0] for x in tables]):
+        # add table
+        cur.execute(f"CREATE TABLE {tab_name}({','.join(col_names)})")
+    cur.close()
+    return con
 
 
 def read_barcode(img, code=[pyzbar.pyzbar.ZBarSymbol.CODE128]):
