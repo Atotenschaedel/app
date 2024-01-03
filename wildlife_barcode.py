@@ -348,8 +348,9 @@ def save(n, sample_id, date, stime, species, sample_live, sample_type, symptoms,
     #vals = [tab_name]
     #vals.extend([bigdict[x] for x in tab_cols])
     try:
-        con.execute(f"INSERT INTO {tab_name} VALUES ( ?" + ", ?" * (len(tab_cols) - 1) + " )",
-                    [bigdict[x] for x in tab_cols])
+        curs = con.cursor()
+        curs.execute(f"INSERT INTO {tab_name} VALUES ( ?" + ", ?" * (len(tab_cols) - 1) + " )",
+                     [bigdict[x] for x in tab_cols])
         con.commit()
     except Error as e:
         return dbc.Alert("DB submission problem:" + e, color="error")
@@ -372,12 +373,13 @@ def get_db_connection(dbname,
         con = sqlite3.connect(dbname)
     except Error as e:
         return "DB connection error" + e
-    cur = con.cursor()
-    tables = cur.execute("SELECT name FROM sqlite_master WHERE TYPE = 'table'").fetchall()
+    curs = con.cursor()
+    tables = curs.execute("SELECT name FROM sqlite_master WHERE TYPE = 'table'").fetchall()
     if len(tables) == 0 or not(tab_name in [x[0] for x in tables]):
         # add table
-        cur.execute(f"CREATE TABLE {tab_name}({','.join(col_names)})")
-    cur.close()
+        curs.execute(f"CREATE TABLE {tab_name}({','.join(col_names)})")
+        con.commit()
+    curs.close()
     return con
 
 
